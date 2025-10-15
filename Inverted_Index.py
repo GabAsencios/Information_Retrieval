@@ -380,9 +380,9 @@ if __name__ == "__main__":
     validate_queries_on_index(compressed_final_index, "COMPRESSED INDEX")
 
 
-    # =========== NON-POSITIONAL INDEX =========== #
+    # =========== INVERTED INDEX =========== #
     print("\n" + "=" * 80)
-    print("NON-POSITIONAL INDEX - COMPRESSION CHAIN")
+    print("INVERTED INDEX - COMPRESSIONS")
     print("=" * 80)
     print(f"{'Stage':<40} | {'Terms':<12} | {'Non-Pos Postings':<12}")
     print("-" * 80)
