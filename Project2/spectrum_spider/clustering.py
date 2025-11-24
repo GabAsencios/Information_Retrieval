@@ -7,7 +7,7 @@ from sklearn.decomposition import PCA
 
 
 # ---------------------------------------------------------
-# 1. SETUP & LOADING
+# SETUP & LOADING
 # ---------------------------------------------------------
 def load_data():
     print("Loading index and collection...")
@@ -36,7 +36,7 @@ def load_data():
 
 
 # ---------------------------------------------------------
-# 2. DOCUMENT RECONSTRUCTION
+# DOCUMENT RECONSTRUCTION
 # ---------------------------------------------------------
 def reconstruct_documents(inverted_index, my_collection_ids):
     print("Reconstructing pseudo-documents from index...")
@@ -59,7 +59,7 @@ def reconstruct_documents(inverted_index, my_collection_ids):
 
 
 # ---------------------------------------------------------
-# 3. PLOTTING FUNCTION
+# PLOTTING FUNCTION
 # ---------------------------------------------------------
 def plot_clusters(X, labels, k, centers):
     """
@@ -101,7 +101,7 @@ def plot_clusters(X, labels, k, centers):
 
 
 # ---------------------------------------------------------
-# 4. MAIN CLUSTERING LOGIC
+# MAIN CLUSTERING LOGIC
 # ---------------------------------------------------------
 def print_top_terms(km, vectorizer, k):
     print(f"\n--- Top terms for k={k} clusters ---")
@@ -115,18 +115,18 @@ def print_top_terms(km, vectorizer, k):
 def main():
     inverted_index, my_collection_ids = load_data()
 
-    # 1. Reconstruct
+    # Reconstruct
     corpus, doc_ids = reconstruct_documents(inverted_index, my_collection_ids)
     if not corpus:
         print("Error: Corpus is empty.")
         exit()
 
-    # 2. Vectorize (TF-IDF)
+    # Vectorize (TF-IDF)
     print("Vectorizing documents...")
     vectorizer = TfidfVectorizer(stop_words='english')
     X = vectorizer.fit_transform(corpus)
 
-    # 3. Run KMeans
+    # Run KMeans
     k_values = [2, 10, 20]
     for k in k_values:
         print(f"\nRunning KMeans clustering with k={k}...")
