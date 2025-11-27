@@ -3,7 +3,7 @@ import PyPDF2
 import io
 import json
 import os
-from scrapy.http import Request
+from scrapy.http import Request, TextResponse
 from nltk.stem import PorterStemmer
 from collections import Counter
 from scrapy.exceptions import CloseSpider
@@ -14,10 +14,6 @@ class spectrumspider(scrapy.Spider):
     allowed_domains = ["spectrum.library.concordia.ca"]
     start_urls = ["https://spectrum.library.concordia.ca/"]
 
-    custom_settings = {
-        'DOWNLOAD_DELAY': 1,
-        'CONCURRENT_REQUESTS': 8,
-    }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -50,10 +46,85 @@ class spectrumspider(scrapy.Spider):
     # -----------------------------
     # CRAWLING LOGIC
     # -----------------------------
-    def parse(self, response):
-        """Main parse method - extracts PDFs and follows links"""
 
-        # Stop if upperbound reached (if max_documents = None --> keep crawling indefinetly)
+    # Spider initializes at main page
+    def start_requests(self):
+        for url in self.start_urls:
+            yield Request(url=url, callback=self.parse_main_page, dont_filter=True, priority=2000)
+
+    # Spider crawls from main to document type page
+    def parse_main_page(self, response):
+        url_1 = response.xpath('//a[contains(text(), "by Document Type")]/@href').get()
+
+        if url_1:
+            url_2 = response.urljoin(url_1)
+            yield Request(url=url_2, callback=self.parse_document_type_page, priority=2000)
+
+    # Spider crawls from document type page to thesis page
+    def parse_document_type_page(self, response):
+        url_3 = response.xpath('//a[text()="Thesis"]/@href').get()
+
+        if url_3:
+
+            url_4 = response.urljoin(url_3)
+
+            yield Request(url=url_4,callback=self.parse_thesis, dont_filter=True, priority=2000)
+
+    # Spider crawls from thesis page to phd and masters page
+    def parse_thesis(self, response):
+        self.logger.info("Step 3: At Thesis Hub. Scheduling sequences...")
+
+        # High Priority
+        phd_url = response.xpath('//a[text()="PhD"]/@href').get()
+        if phd_url:
+            yield Request(url=response.urljoin(phd_url),callback=self.parse_thesis_list, priority=2000,dont_filter=True)
+
+        # Lower Priority
+        masters_url = response.xpath('//a[text()="Masters"]/@href').get()
+        if masters_url:
+            yield Request(url=response.urljoin(masters_url),callback=self.parse_thesis_list,priority=500,dont_filter=True)
+
+
+    # Spider crawls to each year page for both phd and masters theses
+    def parse_thesis_list(self, response):
+        """
+        Step 5: On the PhD Page.
+        Selects ONLY the list of years (ignoring the toolbox menu).
+        """
+        self.logger.info(f"Step 5: Parsing Year URLs at {response.url}")
+
+        # CSS Sibling Selector:
+        # Finds the 'intro' text div, then selects the UL immediately following it.
+        year_links = response.xpath(r'//a[re:test(text(), "^\d{4}$")]/@href').getall()
+
+        for link in year_links:
+            # 1. Validation (Skip empty or non-relative links)
+            if not link or link.startswith(('javascript:', '#', 'mailto:')):
+                continue
+
+            # 2. Convert "2025.html" -> "https://.../2025.html"
+            absolute_url = response.urljoin(link)
+
+            self.logger.info(f"Queueing Year: {absolute_url}")
+
+            # 3. Schedule the crawl for that specific year
+            yield Request(
+                url=absolute_url,
+                callback=self.parse,  # Hand over to PDF Hunter
+                priority=1000,
+                dont_filter=False
+            )
+
+
+    # Main parse method - extracts PDFs and follows links (original spider implementation
+    def parse(self, response):
+
+        # If the response is not text stop immediately
+        if not isinstance(response, TextResponse):
+            self.logger.info(f"Skipping binary response (video/image): {response.url}")
+            return
+
+        # Stop if upperbound reached (if max_documents = None --> keep crawling until no more PDFs are found)
         if self.max_documents and self.document_count >= self.max_documents:
             self.logger.info(f"Limit reached. Stopping.")
             return
@@ -78,19 +149,19 @@ class spectrumspider(scrapy.Spider):
 
             self.pdf_found += 1
 
-            # Extract title
-            title_element = response.xpath(f'//a[@href="{pdf_url}"]/text()').get()
-            if not title_element:
-                title_element = response.xpath(f'//a[@href="{pdf_url}"]/..//text()').get()
-            title = title_element.strip() if title_element else "Unknown Title"
+            # # Extract title
+            # title_element = response.xpath(f'//a[@href="{pdf_url}"]/text()').get()
+            # if not title_element:
+            #     title_element = response.xpath(f'//a[@href="{pdf_url}"]/..//text()').get()
+            # title = title_element.strip() if title_element else "Unknown Title"
 
-            self.logger.info(f"Found PDF #{self.pdf_found}: {title}")
+            # self.logger.info(f"Found PDF #{self.pdf_found}: {title}")
 
             # High priority for PDFs
             yield Request(
                 full_pdf_url,
                 callback=self.parse_pdf,
-                meta={'title': title, 'url': response.url},
+                meta={'url': response.url,'download_timeout': 300},
                 priority=1000,
                 dont_filter=True
             )
@@ -119,10 +190,10 @@ class spectrumspider(scrapy.Spider):
             return
 
         document_url = response.url
-        document_title = response.meta.get('title', 'Unknown Title')
+        # document_title = response.meta.get('title', 'Unknown Title')
 
         try:
-            self.logger.info(f"Processing PDF: {document_title}")
+            self.logger.info(f"Processing PDF")
 
             # Read PDF with PyPDF2
             pdf_file = io.BytesIO(response.body)
@@ -139,18 +210,18 @@ class spectrumspider(scrapy.Spider):
 
             # Check if we got meaningful text
             if not extracted_text or len(extracted_text.strip()) < 50:
-                self.logger.warning(f"Could not extract meaningful text from: {document_title}")
+                self.logger.warning(f"Could not extract meaningful text from PDF")
                 return
 
             # Increment document count
             self.document_count += 1
             doc_id = self.document_count
 
-            self.logger.info(f"Successfully processed PDF #{doc_id}: {document_title}")
+            self.logger.info(f"Successfully processed PDF #{doc_id}")
 
             # Tokenize and add to SPIMI index
             tokens = self.tokenize(extracted_text)
-            self.add_to_spimi_block(tokens, doc_id, document_title, document_url)
+            self.add_to_spimi_block(tokens, doc_id, document_url)
 
             # Check if we've reached the limit
             if self.max_documents and self.document_count >= self.max_documents:
@@ -182,7 +253,7 @@ class spectrumspider(scrapy.Spider):
     # -----------------------------
     # SPIMI ADD TO BLOCK
     # -----------------------------
-    def add_to_spimi_block(self, tokens, doc_id, title, url):
+    def add_to_spimi_block(self, tokens, doc_id,  url):
         term_freq = Counter(tokens)
 
         for term, freq in term_freq.items():
@@ -192,7 +263,6 @@ class spectrumspider(scrapy.Spider):
             self.inverted_block[term].append({
                 "doc": doc_id,
                 "freq": freq,
-                "title": title,
                 "url": url
             })
 

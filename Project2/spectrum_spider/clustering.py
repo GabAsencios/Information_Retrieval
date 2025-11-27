@@ -97,7 +97,7 @@ def plot_clusters(X, labels, k, centers):
     filename = f"cluster_plot_k{k}.png"
     plt.savefig(filename)
     print(f"Plot saved as {filename}")
-    plt.show() # Uncomment if you want to see the window pop up
+    # plt.show() # Uncomment if you want to see the window pop up
 
 
 # ---------------------------------------------------------
